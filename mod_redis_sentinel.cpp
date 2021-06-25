@@ -36,6 +36,17 @@ int redis_get_cmd_string_space_count(const char* cmd)
 	return arg_count;
 }
 
+//去掉字符串前后的双引号
+void check_string_double_quotes(char* buffer)
+{
+	if(buffer[0] == '"' && buffer[strlen(buffer) - 1] == '"')
+	{
+		//前后有双引号，需要去掉
+		memmove(buffer, &buffer[1], strlen(buffer) - 2);
+		buffer[strlen(buffer) - 2] = '\0';
+	}
+}
+
 // cmd为参数列表
 // sessin为当前callleg的session
 // stream为当前输出流。如果想在Freeswitch控制台中输出什么，可以往这个流里写
@@ -121,6 +132,7 @@ SWITCH_DECLARE(bool) connect_redis_sentinel_server()
 	connection_opts.password = redis_sentinel_config_.redis_password;  // Optional. No password by default.
 	connection_opts.connect_timeout = std::chrono::milliseconds(redis_sentinel_config_.redis_connect_timeout);   // Required.
 	connection_opts.socket_timeout = std::chrono::milliseconds(redis_sentinel_config_.redis_connect_timeout);    // Required.
+	connection_opts.keep_alive = true; //保活
 
 	ConnectionPoolOptions pool_opts;
 	
@@ -212,7 +224,7 @@ static switch_status_t do_config(Credis_sentinel_config& redis_sentinel_config)
 }
 
 //向队列里push消息
-SWITCH_STANDARD_API(push_redis_sentinel_event) 
+SWITCH_STANDARD_API(push_resis_sentinel_rpush) 
 {
 	switch_memory_pool_t *pool;
 	char *mycmd = NULL;
@@ -220,7 +232,7 @@ SWITCH_STANDARD_API(push_redis_sentinel_event)
 	int argc = 0;
 
     if (zstr(cmd)) {
-        stream->write_function(stream, "[push_redis_sentinel_event]parameter missing.\n");
+        stream->write_function(stream, "[push_resis_sentinel_rpush]parameter missing.\n");
         return SWITCH_STATUS_SUCCESS;
     }
 
@@ -229,13 +241,15 @@ SWITCH_STANDARD_API(push_redis_sentinel_event)
 
 	argc = redis_get_cmd_string_space_count(mycmd);
     if (argc != 2) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_redis_sentinel_event]parameter number is invalid, mycmd=%s, count=%d.\n", mycmd, argc);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_resis_sentinel_rpush]parameter number is invalid, mycmd=%s, count=%d.\n", mycmd, argc);
         return SWITCH_STATUS_SUCCESS;
     }
 
 	argc = switch_split(mycmd, ' ', argv);
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_redis_sentinel_event]topic=%s.\n", argv[0]);
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_redis_sentinel_event]message=%s.\n", argv[1]);	
+	check_string_double_quotes(argv[0]);
+	check_string_double_quotes(argv[1]);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_resis_sentinel_rpush]topic=%s.\n", argv[0]);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_resis_sentinel_rpush]message=%s.\n", argv[1]);	
 
 	if(redis_is_connect_ == false)
 	{
@@ -249,12 +263,174 @@ SWITCH_STANDARD_API(push_redis_sentinel_event)
 		try
 		{
 			master_redis_->rpush(argv[0],  argv[1]);
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_redis_sentinel_event]send %s success.\n", argv[0]);
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_resis_sentinel_rpush]send %s success.\n", argv[0]);
+			stream->write_function(stream, "ok");
 		}
 		catch(sw::redis::Error err)
 		{
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[connect_redis_sentinel_server]error=%s!\n", err.what());	
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_resis_sentinel_rpush]error=%s!\n", err.what());	
 			redis_is_connect_ = false;
+			stream->write_function(stream, "fail");
+		}	
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+//读取队列的一条消息
+SWITCH_STANDARD_API(pop_resis_sentinel_lpop) 
+{
+	switch_memory_pool_t *pool;
+	char *mycmd = NULL;
+	char *argv[1] = {0};
+	int argc = 0;
+
+    if (zstr(cmd)) {
+        stream->write_function(stream, "[pop_resis_sentinel_lpop]parameter missing.\n");
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+    switch_core_new_memory_pool(&pool);
+    mycmd = switch_core_strdup(pool, cmd); 
+
+	argc = redis_get_cmd_string_space_count(mycmd);
+    if (argc != 1) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[pop_resis_sentinel_lpop]parameter number is invalid, mycmd=%s, count=%d.\n", mycmd, argc);
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+	argc = switch_split(mycmd, ' ', argv);
+	check_string_double_quotes(argv[0]);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[pop_resis_sentinel_lpop]topic=%s.\n", argv[0]);
+
+	if(redis_is_connect_ == false)
+	{
+		//如果链接不存在，测试重连
+		reconnect_redis_sentinel_servre();
+	}
+
+	if(redis_is_connect_ == true)
+	{
+		//链接存在，可以提交
+		try
+		{
+			auto element = master_redis_->lpop(argv[0]);
+			std::string redis_message = *element;
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[push_redis_sentinel_event]pop (%s) success.\n", redis_message.c_str());
+			stream->write_function(stream, "%s", redis_message.c_str());
+		}
+		catch(sw::redis::Error err)
+		{
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[pop_resis_sentinel_lpop]error=%s!\n", err.what());	
+			redis_is_connect_ = false;
+			stream->write_function(stream, "");
+		}	
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+//读取redis一个key
+SWITCH_STANDARD_API(get_resis_sentinel_value) 
+{
+	switch_memory_pool_t *pool;
+	char *mycmd = NULL;
+	char *argv[1] = {0};
+	int argc = 0;
+
+    if (zstr(cmd)) {
+        stream->write_function(stream, "[get_resis_sentinel_value]parameter missing.\n");
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+    switch_core_new_memory_pool(&pool);
+    mycmd = switch_core_strdup(pool, cmd); 
+
+	argc = redis_get_cmd_string_space_count(mycmd);
+    if (argc != 1) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[get_resis_sentinel_value]parameter number is invalid, mycmd=%s, count=%d.\n", mycmd, argc);
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+	argc = switch_split(mycmd, ' ', argv);
+	check_string_double_quotes(argv[0]);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[get_resis_sentinel_value]topic=%s.\n", argv[0]);
+
+	if(redis_is_connect_ == false)
+	{
+		//如果链接不存在，测试重连
+		reconnect_redis_sentinel_servre();
+	}
+
+	if(redis_is_connect_ == true)
+	{
+		//链接存在，可以提交
+		try
+		{
+			auto element = master_redis_->get(argv[0]);
+			std::string redis_message = *element;
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[get_resis_sentinel_value]get (%s) success.\n", redis_message.c_str());
+			stream->write_function(stream, "%s", redis_message.c_str());
+		}
+		catch(sw::redis::Error err)
+		{
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[get_resis_sentinel_value]error=%s!\n", err.what());	
+			redis_is_connect_ = false;
+			stream->write_function(stream, "");
+		}	
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+//读取redis一个key
+SWITCH_STANDARD_API(set_resis_sentinel_value) 
+{
+	switch_memory_pool_t *pool;
+	char *mycmd = NULL;
+	char *argv[2] = {0};
+	int argc = 0;
+
+    if (zstr(cmd)) {
+        stream->write_function(stream, "[set_resis_sentinel_value]parameter missing.\n");
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+    switch_core_new_memory_pool(&pool);
+    mycmd = switch_core_strdup(pool, cmd); 
+
+	argc = redis_get_cmd_string_space_count(mycmd);
+    if (argc != 2) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[set_resis_sentinel_value]parameter number is invalid, mycmd=%s, count=%d.\n", mycmd, argc);
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+	argc = switch_split(mycmd, ' ', argv);
+	check_string_double_quotes(argv[0]);
+	check_string_double_quotes(argv[1]);	
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[set_resis_sentinel_value]topic=%s.\n", argv[0]);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[set_resis_sentinel_value]value=%s.\n", argv[1]);
+
+	if(redis_is_connect_ == false)
+	{
+		//如果链接不存在，测试重连
+		reconnect_redis_sentinel_servre();
+	}
+
+	if(redis_is_connect_ == true)
+	{
+		//链接存在，可以提交
+		try
+		{
+			master_redis_->set(argv[0], argv[1]);
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[get_resis_sentinel_value]set (%s) success.\n", argv[0]);
+			stream->write_function(stream, "ok");
+		}
+		catch(sw::redis::Error err)
+		{
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[get_resis_sentinel_value]error=%s!\n", err.what());	
+			redis_is_connect_ = false;
+			stream->write_function(stream, "false");
 		}	
 	}
 
@@ -269,7 +445,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_redis_sentinel_load)
 	/* connect my internal structure to the blank pointer passed to me */
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
 
-	SWITCH_ADD_API(commands_api_interface, "push_resis_sentinel_event", "push redis message", push_redis_sentinel_event, "<key> <message>");
+	SWITCH_ADD_API(commands_api_interface, "push_resis_sentinel_rpush", "lpush redis message", push_resis_sentinel_rpush, "<key> <message>");
+	SWITCH_ADD_API(commands_api_interface, "pop_resis_sentinel_lpop", "lpop redis message", pop_resis_sentinel_lpop, "<key>");
+	SWITCH_ADD_API(commands_api_interface, "get_resis_sentinel_value", "get redis message", get_resis_sentinel_value, "<key>");
+	SWITCH_ADD_API(commands_api_interface, "set_resis_sentinel_value", "set redis message", set_resis_sentinel_value, "<key> <value>");
 
   	/* 读取配置文件 */
 	switch_status_t do_config_return = do_config(redis_sentinel_config_);
