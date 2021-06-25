@@ -278,8 +278,11 @@ SWITCH_STANDARD_API(push_resis_sentinel_rpush)
 		//如果链接不存在，测试重连
 		reconnect_redis_sentinel_servre();
 	}
-
-	redis_sentieml_ping();
+	else
+	{
+		//如果链接已经存在，则检测ping
+		redis_sentieml_ping();
+	}	
 
 	if(redis_is_connect_ == true)
 	{
@@ -332,8 +335,11 @@ SWITCH_STANDARD_API(pop_resis_sentinel_lpop)
 		//如果链接不存在，测试重连
 		reconnect_redis_sentinel_servre();
 	}
-
-	redis_sentieml_ping();
+	else
+	{
+		//如果链接已经存在，则检测ping
+		redis_sentieml_ping();
+	}
 
 	if(redis_is_connect_ == true)
 	{
@@ -387,8 +393,11 @@ SWITCH_STANDARD_API(get_resis_sentinel_value)
 		//如果链接不存在，测试重连
 		reconnect_redis_sentinel_servre();
 	}
-
-	redis_sentieml_ping();
+	else
+	{
+		//如果链接已经存在，则检测ping
+		redis_sentieml_ping();
+	}
 
 	if(redis_is_connect_ == true)
 	{
@@ -444,8 +453,11 @@ SWITCH_STANDARD_API(set_resis_sentinel_value)
 		//如果链接不存在，测试重连
 		reconnect_redis_sentinel_servre();
 	}
-
-	redis_sentieml_ping();
+	else
+	{
+		//如果链接已经存在，则检测ping
+		redis_sentieml_ping();
+	}
 
 	if(redis_is_connect_ == true)
 	{
