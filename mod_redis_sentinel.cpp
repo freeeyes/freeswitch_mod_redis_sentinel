@@ -167,6 +167,20 @@ SWITCH_DECLARE(bool) reconnect_redis_sentinel_servre()
 	return true;
 }
 
+//发起PING，测试redis链接是否存活
+void redis_sentieml_ping()
+{
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[redis_sentieml_ping]pingpomg!\n");
+	std::string redis_return = master_redis_->ping();
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[redis_sentieml_ping]redis_return=%s!\n", redis_return.c_str());
+	if(redis_return != "PONG")
+	{
+		//链接已断开需要重连
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[redis_sentieml_ping]reconnect!\n");
+		reconnect_redis_sentinel_servre();
+	}
+}
+
 //读取配置文件
 static switch_status_t do_config(Credis_sentinel_config& redis_sentinel_config)
 {
@@ -257,6 +271,8 @@ SWITCH_STANDARD_API(push_resis_sentinel_rpush)
 		reconnect_redis_sentinel_servre();
 	}
 
+	redis_sentieml_ping();
+
 	if(redis_is_connect_ == true)
 	{
 		//链接存在，可以提交
@@ -308,6 +324,8 @@ SWITCH_STANDARD_API(pop_resis_sentinel_lpop)
 		//如果链接不存在，测试重连
 		reconnect_redis_sentinel_servre();
 	}
+
+	redis_sentieml_ping();
 
 	if(redis_is_connect_ == true)
 	{
@@ -361,6 +379,8 @@ SWITCH_STANDARD_API(get_resis_sentinel_value)
 		//如果链接不存在，测试重连
 		reconnect_redis_sentinel_servre();
 	}
+
+	redis_sentieml_ping();
 
 	if(redis_is_connect_ == true)
 	{
@@ -416,6 +436,8 @@ SWITCH_STANDARD_API(set_resis_sentinel_value)
 		//如果链接不存在，测试重连
 		reconnect_redis_sentinel_servre();
 	}
+
+	redis_sentieml_ping();
 
 	if(redis_is_connect_ == true)
 	{

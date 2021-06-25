@@ -1,7 +1,6 @@
 <configuration name="redis_sentinel.conf" description="connect rocket mq push && pull">
 	<profiles>
 		<profile>
-			<!--param name="redis_server" value="127.0.0.1:26379?keep_alive=true"/-->
 			<param name="redis_server" value="127.0.0.1:26379"/>
 			<param name="redis_password" value="easkredis"/>
 			<param name="redis_master_name" value="mymaster"/>
