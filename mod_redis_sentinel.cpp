@@ -72,7 +72,7 @@ public:
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[Credis_sentinel_config]redis_master_server_list=%s!\n", redis_master_server_list.c_str());
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[Credis_sentinel_config]produce_ServerAddress=%s!\n", redis_password.c_str());
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[Credis_sentinel_config]produce_topic=%s!\n", redis_master_name.c_str());
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[Credis_sentinel_config]consumer_name=%d!\n", redis_connect_timeout);		
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[Credis_sentinel_config]redis_connect_timeout=%d!\n", redis_connect_timeout);		
 	}
 };
 
@@ -170,9 +170,17 @@ SWITCH_DECLARE(bool) reconnect_redis_sentinel_servre()
 //发起PING，测试redis链接是否存活
 void redis_sentieml_ping()
 {
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[redis_sentieml_ping]pingpomg!\n");
-	std::string redis_return = master_redis_->ping();
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[redis_sentieml_ping]redis_return=%s!\n", redis_return.c_str());
+	std::string redis_return = "";
+
+	try
+	{
+		redis_return = master_redis_->ping();
+	}
+	catch(sw::redis::Error err)
+	{
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "[redis_sentieml_ping]error=%s!\n", err.what());	
+	}	
+
 	if(redis_return != "PONG")
 	{
 		//链接已断开需要重连
